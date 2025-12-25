@@ -176,17 +176,46 @@
     },
     {
       "parameters": {
+        "method": "GET",
+        "url": "={{ $json.output[0] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-image",
+      "name": "Download Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, -100]
+    },
+    {
+      "parameters": {
+        "fileName": "=/path/to/generated-images/{{ $now.toFormat('yyyy-MM-dd_HH-mm-ss') }}.png",
+        "options": {}
+      },
+      "id": "save-image",
+      "name": "Save Image",
+      "type": "n8n-nodes-base.writeBinaryFile",
+      "typeVersion": 1,
+      "position": [1320, -100]
+    },
+    {
+      "parameters": {
         "operation": "completion",
         "respondWith": "text",
         "completionTitle": "Image Generated!",
-        "completionMessage": "=Your image has been generated!\n\nPrompt: {{ $('Image Generator Form').json[\"Image Prompt\"] }}\n\nView your image: {{ $json.output[0] }}",
+        "completionMessage": "=Your image has been generated and saved!\n\nPrompt: {{ $('Image Generator Form').json[\"Image Prompt\"] }}\n\nSaved to: {{ $json.fileName }}\n\nView image: {{ $('Check Prediction Status').json.output[0] }}",
         "options": {}
       },
       "id": "respond-success",
       "name": "Return Generated Image",
       "type": "n8n-nodes-base.form",
       "typeVersion": 1,
-      "position": [1100, -100]
+      "position": [1540, -100]
     },
     {
       "parameters": {
@@ -218,7 +247,7 @@
     },
     "Is Generation Complete?": {
       "main": [
-        [{ "node": "Return Generated Image", "type": "main", "index": 0 }],
+        [{ "node": "Download Image", "type": "main", "index": 0 }],
         [{ "node": "Did Generation Fail?", "type": "main", "index": 0 }]
       ]
     },
@@ -230,6 +259,12 @@
     },
     "Wait Before Retry": {
       "main": [[{ "node": "Check Prediction Status", "type": "main", "index": 0 }]]
+    },
+    "Download Image": {
+      "main": [[{ "node": "Save Image", "type": "main", "index": 0 }]]
+    },
+    "Save Image": {
+      "main": [[{ "node": "Return Generated Image", "type": "main", "index": 0 }]]
     }
   },
   "settings": {
