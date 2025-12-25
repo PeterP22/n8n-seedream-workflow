@@ -59,6 +59,26 @@ A complete image generation pipeline with:
 - Replicate API account and token
 - Telegram account
 
+### Running the Server
+
+**Start n8n:**
+```bash
+cd /path/to/self-hosted-ai-starter-kit
+docker compose --profile cpu up -d
+```
+
+**Stop n8n:**
+```bash
+docker compose down
+```
+
+**Quick reference:**
+- `docker compose down` - stops and removes containers
+- `docker compose stop` - stops without removing (faster restart)
+- `docker compose logs -f n8n` - view logs if troubleshooting
+
+Once running, access n8n at http://localhost:5678
+
 ### 1. Replicate API Credential
 
 1. Get your API token from [Replicate](https://replicate.com/account/api-tokens)

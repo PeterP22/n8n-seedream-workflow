@@ -1,0 +1,196 @@
+N8N WORKFLOW BUILDING GUIDE
+============================
+Reference for Claude when building n8n workflows.
+
+CRITICAL GOTCHAS
+----------------
+
+1. FORM TRIGGERS REQUIRE FORM NODES
+   - Form Trigger nodes MUST end with Form nodes (operation: "completion")
+   - DO NOT use "Respond to Webhook" nodes with Form Triggers - they are incompatible
+   - Form completion shows a success/error page to the user
+
+2. WAIT NODES BREAK EXECUTION CONTEXT
+   - After a Wait node, $('NodeName').json does NOT work
+   - Use $json to access data that was passed through the Wait node
+   - The Wait node passes data forward, so reference it directly
+
+3. REPLICATE API FORMAT
+   - Use "version" field with the full version hash, NOT "model" field
+   - Correct: "version": "8356ab00a2acd0f79338ecf1ffa0e32493c6f7cdfc7178b5cfbdb1461202fdc2"
+   - Wrong: "model": "bytedance/seedream-4.5"
+   - Replicate returns a prediction ID immediately; poll /v1/predictions/{id} for status
+
+4. DOCKER FILE ACCESS RESTRICTIONS
+   - n8n in Docker cannot write to arbitrary host paths
+   - N8N_RESTRICT_FILE_ACCESS_TO env var limits accessible paths
+   - Even with proper mounts, writeBinaryFile often fails in containers
+   - Solution: Use cloud delivery (Telegram, Discord, S3) instead of local file saving
+
+5. TYPEVERSION COMPATIBILITY
+   - Always check node typeVersion matches your n8n instance
+   - Form nodes: use typeVersion 1 (not 1.1)
+   - HTTP Request: typeVersion 4.2 is current
+   - Telegram: typeVersion 1.2
+   - If a node fails silently, check typeVersion first
+
+
+EXPRESSION SYNTAX
+-----------------
+
+Basic field access:
+  {{ $json.fieldName }}
+  {{ $json["Field With Spaces"] }}
+
+Reference other nodes:
+  {{ $('Node Name').json.fieldName }}
+  {{ $('Node Name').json["Field Name"] }}
+
+Conditional/fallback:
+  {{ $json.field || "default value" }}
+
+In HTTP Request JSON body (note the outer ={{ }}):
+  ={{ {
+    "key": $json["Field Name"],
+    "other": $json.value || "default"
+  } }}
+
+
+ASYNC API POLLING PATTERN
+-------------------------
+
+1. Submit request → get prediction/job ID
+2. Wait node (5 seconds is good balance)
+3. Check status endpoint with ID
+4. IF status == "succeeded" → process result
+5. IF status == "failed" → return error
+6. ELSE → loop back to Wait node (retry)
+
+Connection flow:
+  Submit → Wait → Check Status → IF Complete?
+                                   ├─ YES → Process Result
+                                   └─ NO → IF Failed?
+                                            ├─ YES → Error
+                                            └─ NO → Wait (loop back)
+
+
+TELEGRAM BOT INTEGRATION
+------------------------
+
+Setup:
+1. Message @BotFather, send /newbot
+2. Copy the API token
+3. Message your bot (send "hi" to start a chat)
+4. Get chat ID: https://api.telegram.org/bot<TOKEN>/getUpdates
+   Look for "chat":{"id": NUMBER}
+
+n8n Telegram node config for sending images:
+  - operation: "sendPhoto"
+  - chatId: "YOUR_CHAT_ID"
+  - binaryData: true (requires binary input from HTTP Request)
+  - To get binary: HTTP Request with responseFormat: "file"
+
+
+HTTP REQUEST FOR BINARY FILES
+-----------------------------
+
+To download an image as binary for Telegram/email:
+
+{
+  "method": "GET",
+  "url": "={{ $json.imageUrl }}",
+  "options": {
+    "response": {
+      "response": {
+        "responseFormat": "file"
+      }
+    }
+  }
+}
+
+
+CREDENTIAL SETUP
+----------------
+
+For Header Auth (like Replicate API):
+  - Name: "Replicate API"
+  - Header Name: "Authorization"
+  - Header Value: "Bearer r8_your_token_here"
+
+In workflow JSON, credentials reference by ID and name:
+  "credentials": {
+    "httpHeaderAuth": {
+      "id": "YOUR_CREDENTIAL_ID",
+      "name": "Replicate API"
+    }
+  }
+
+After importing workflow, manually link credentials in n8n UI.
+
+
+WORKFLOW JSON STRUCTURE
+-----------------------
+
+{
+  "name": "Workflow Name",
+  "nodes": [
+    {
+      "id": "unique-id",
+      "name": "Display Name",
+      "type": "n8n-nodes-base.nodeType",
+      "typeVersion": 1,
+      "position": [x, y],
+      "parameters": { ... },
+      "credentials": { ... }  // if needed
+    }
+  ],
+  "connections": {
+    "Source Node Name": {
+      "main": [
+        [{ "node": "Target Node Name", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
+
+For IF nodes with two outputs (true/false):
+  "main": [
+    [{ "node": "True Branch Node", ... }],
+    [{ "node": "False Branch Node", ... }]
+  ]
+
+
+COMMON NODE TYPES
+-----------------
+
+Triggers:
+  n8n-nodes-base.formTrigger    - Web form input
+  n8n-nodes-base.webhook        - HTTP webhook
+  n8n-nodes-base.scheduleTrigger - Cron/interval
+
+Logic:
+  n8n-nodes-base.if             - Conditional branching
+  n8n-nodes-base.switch         - Multiple conditions
+  n8n-nodes-base.wait           - Pause execution
+
+HTTP:
+  n8n-nodes-base.httpRequest    - API calls
+
+Output:
+  n8n-nodes-base.form           - Form completion response
+  n8n-nodes-base.telegram       - Telegram messages
+  n8n-nodes-base.respondToWebhook - Webhook response (NOT for forms!)
+
+
+DEBUGGING TIPS
+--------------
+
+1. Check node typeVersion compatibility first
+2. Test expressions in the n8n expression editor
+3. After Wait nodes, data context changes - use $json
+4. For file operations in Docker, prefer cloud storage
+5. Replicate status values: "starting", "processing", "succeeded", "failed"
+6. Use 5-second polling intervals (balances speed vs API rate limits)
