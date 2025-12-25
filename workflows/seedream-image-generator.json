@@ -194,21 +194,32 @@
     },
     {
       "parameters": {
-        "fileName": "=/path/to/generated-images/{{ $now.toFormat('yyyy-MM-dd_HH-mm-ss') }}.png",
-        "options": {}
+        "operation": "sendPhoto",
+        "chatId": "YOUR_CHAT_ID",
+        "binaryData": true,
+        "additionalFields": {
+          "caption": "=🎨 *Image Generated!*\n\n📝 *Prompt:* {{ $('Image Generator Form').json['Image Prompt'] }}\n\n⚙️ Size: {{ $('Image Generator Form').json['Size'] }} | Ratio: {{ $('Image Generator Form').json['Aspect Ratio'] }}",
+          "parse_mode": "Markdown"
+        }
       },
-      "id": "save-image",
-      "name": "Save Image",
-      "type": "n8n-nodes-base.writeBinaryFile",
-      "typeVersion": 1,
-      "position": [1320, -100]
+      "id": "send-telegram",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1320, -100],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Telegram Bot"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "completion",
         "respondWith": "text",
         "completionTitle": "Image Generated!",
-        "completionMessage": "=Your image has been generated and saved!\n\nPrompt: {{ $('Image Generator Form').json[\"Image Prompt\"] }}\n\nSaved to: {{ $json.fileName }}\n\nView image: {{ $('Check Prediction Status').json.output[0] }}",
+        "completionMessage": "=Your image has been generated and sent to Telegram!\n\nPrompt: {{ $('Image Generator Form').json[\"Image Prompt\"] }}\n\nCheck your Telegram for the image.",
         "options": {}
       },
       "id": "respond-success",
@@ -261,9 +272,9 @@
       "main": [[{ "node": "Check Prediction Status", "type": "main", "index": 0 }]]
     },
     "Download Image": {
-      "main": [[{ "node": "Save Image", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Send to Telegram", "type": "main", "index": 0 }]]
     },
-    "Save Image": {
+    "Send to Telegram": {
       "main": [[{ "node": "Return Generated Image", "type": "main", "index": 0 }]]
     }
   },
