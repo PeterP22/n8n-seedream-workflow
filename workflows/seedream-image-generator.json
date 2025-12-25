@@ -1,0 +1,238 @@
+{
+  "name": "SeedDream 4.5 Image Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "SeedDream 4.5 Image Generator",
+        "formDescription": "Generate AI images using ByteDance's SeedDream 4.5 model",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Image Prompt",
+              "fieldType": "textarea",
+              "placeholder": "Describe the image you want to generate...",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Size",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  { "option": "2K" },
+                  { "option": "4K" }
+                ]
+              },
+              "defaultValue": "2K"
+            },
+            {
+              "fieldLabel": "Aspect Ratio",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  { "option": "1:1" },
+                  { "option": "16:9" },
+                  { "option": "9:16" },
+                  { "option": "4:3" },
+                  { "option": "3:4" }
+                ]
+              },
+              "defaultValue": "1:1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "form-trigger",
+      "name": "Image Generator Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [0, 0],
+      "webhookId": "seedream-form"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.replicate.com/v1/predictions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  \"version\": \"8356ab00a2acd0f79338ecf1ffa0e32493c6f7cdfc7178b5cfbdb1461202fdc2\",\n  \"input\": {\n    \"prompt\": $json[\"Image Prompt\"],\n    \"size\": $json[\"Size\"] || \"2K\",\n    \"aspect_ratio\": $json[\"Aspect Ratio\"] || \"1:1\"\n  }\n} }}",
+        "options": {}
+      },
+      "id": "create-prediction",
+      "name": "Create Prediction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Replicate API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-initial",
+      "name": "Wait for Processing",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [440, 0],
+      "webhookId": "wait-initial"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.replicate.com/v1/predictions/{{ $json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "check-status",
+      "name": "Check Prediction Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Replicate API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-succeeded",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "succeeded",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-completed",
+      "name": "Is Generation Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-failed",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "failed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-failed",
+      "name": "Did Generation Fail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [880, 220]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-poll",
+      "name": "Wait Before Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1100, 220],
+      "webhookId": "wait-poll"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "text",
+        "completionTitle": "Image Generated!",
+        "completionMessage": "=Your image has been generated!\n\nPrompt: {{ $('Image Generator Form').json[\"Image Prompt\"] }}\n\nView your image: {{ $json.output[0] }}",
+        "options": {}
+      },
+      "id": "respond-success",
+      "name": "Return Generated Image",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.2,
+      "position": [1100, -100]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "text",
+        "completionTitle": "Generation Failed",
+        "completionMessage": "=Image generation failed.\n\nError: {{ $json.error || 'An error occurred during image generation.' }}\n\nPlease try again.",
+        "options": {}
+      },
+      "id": "respond-error",
+      "name": "Return Error",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.2,
+      "position": [1100, 400]
+    }
+  ],
+  "connections": {
+    "Image Generator Form": {
+      "main": [[{ "node": "Create Prediction", "type": "main", "index": 0 }]]
+    },
+    "Create Prediction": {
+      "main": [[{ "node": "Wait for Processing", "type": "main", "index": 0 }]]
+    },
+    "Wait for Processing": {
+      "main": [[{ "node": "Check Prediction Status", "type": "main", "index": 0 }]]
+    },
+    "Check Prediction Status": {
+      "main": [[{ "node": "Is Generation Complete?", "type": "main", "index": 0 }]]
+    },
+    "Is Generation Complete?": {
+      "main": [
+        [{ "node": "Return Generated Image", "type": "main", "index": 0 }],
+        [{ "node": "Did Generation Fail?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Did Generation Fail?": {
+      "main": [
+        [{ "node": "Return Error", "type": "main", "index": 0 }],
+        [{ "node": "Wait Before Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait Before Retry": {
+      "main": [[{ "node": "Check Prediction Status", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

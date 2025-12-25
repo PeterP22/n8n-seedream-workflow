@@ -1,0 +1,21 @@
+# Environment variables - contains API keys
+.env
+.env.local
+.env.*.local
+
+# n8n data directory (if running locally)
+.n8n/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
