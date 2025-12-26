@@ -1,0 +1,229 @@
+{
+  "name": "AI Research Digest",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Daily 6am AEST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300],
+      "parameters": {
+        "rule": {
+          "interval": [{"triggerAtHour": 6, "triggerAtMinute": 0}]
+        }
+      }
+    },
+    {
+      "id": "fetch-arxiv",
+      "name": "Fetch arXiv AI Papers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 0],
+      "parameters": {
+        "url": "https://export.arxiv.org/rss/cs.AI+cs.LG+cs.CL",
+        "options": {"response": {"response": {"responseFormat": "text"}}}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "fetch-hn-ids",
+      "name": "Fetch HN Top Story IDs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 200],
+      "parameters": {
+        "url": "https://hacker-news.firebaseio.com/v0/topstories.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "fetch-huggingface",
+      "name": "Fetch HuggingFace Papers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 400],
+      "parameters": {
+        "url": "https://huggingface.co/api/daily_papers",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "fetch-reddit-ml",
+      "name": "Fetch Reddit ML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 600],
+      "parameters": {
+        "url": "https://www.reddit.com/r/MachineLearning/hot.json?limit=15",
+        "options": {"response": {"response": {"responseFormat": "json"}}},
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "User-Agent", "value": "n8n-ai-digest/1.0"}]}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "fetch-reddit-llama",
+      "name": "Fetch Reddit LocalLLaMA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 800],
+      "parameters": {
+        "url": "https://www.reddit.com/r/LocalLLaMA/hot.json?limit=15",
+        "options": {"response": {"response": {"responseFormat": "json"}}},
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "User-Agent", "value": "n8n-ai-digest/1.0"}]}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "parse-arxiv",
+      "name": "Parse arXiv RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 0],
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst xml = input.data || input.body || input.response || (typeof input === 'string' ? input : JSON.stringify(input));\n\nconst papers = [];\n\nif (typeof xml === 'string' && xml.includes('<item>')) {\n  const itemRegex = /<item>(.*?)<\\/item>/gs;\n  const titleRegex = /<title>(.*?)<\\/title>/s;\n  const linkRegex = /<link>(.*?)<\\/link>/s;\n  const descRegex = /<description>(.*?)<\\/description>/s;\n\n  let match;\n  while ((match = itemRegex.exec(xml)) !== null) {\n    const item = match[1];\n    const title = titleRegex.exec(item)?.[1]?.replace(/<[^>]*>/g, '').trim() || '';\n    const link = linkRegex.exec(item)?.[1]?.trim() || '';\n    const desc = descRegex.exec(item)?.[1]?.replace(/<[^>]*>/g, '').substring(0, 300).trim() || '';\n    \n    if (title && !title.includes('replacements for')) {\n      papers.push({ source: 'arXiv', title: title.substring(0, 200), url: link, summary: desc });\n    }\n  }\n}\n\nreturn [{ json: { papers: papers.slice(0, 10) } }];"
+      }
+    },
+    {
+      "id": "limit-hn-ids",
+      "name": "Limit to 30 Stories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 200],
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\nconst storyIds = allItems.map(item => {\n  const val = item.json;\n  return typeof val === 'number' ? val : (val.id || val.storyId || Object.values(val)[0]);\n});\n\nreturn storyIds.slice(0, 30).map(id => ({ json: { storyId: id } }));"
+      }
+    },
+    {
+      "id": "fetch-hn-story",
+      "name": "Fetch HN Story Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 200],
+      "parameters": {
+        "url": "=https://hacker-news.firebaseio.com/v0/item/{{ $json.storyId }}.json",
+        "options": {}
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "filter-hn-ai",
+      "name": "Filter AI Stories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200],
+      "parameters": {
+        "jsCode": "const stories = $input.all();\nconst aiKeywords = ['ai', 'llm', 'gpt', 'claude', 'openai', 'anthropic', 'machine learning', 'neural', 'transformer', 'model', 'agent', 'gemini', 'mistral', 'llama', 'embedding', 'rag', 'fine-tun', 'training', 'inference', 'gpu', 'cuda'];\n\nconst filtered = stories\n  .filter(s => s.json && s.json.title && s.json.score > 50)\n  .filter(s => aiKeywords.some(kw => s.json.title.toLowerCase().includes(kw)))\n  .slice(0, 8)\n  .map(s => ({ source: 'Hacker News', title: s.json.title, url: s.json.url || `https://news.ycombinator.com/item?id=${s.json.id}`, score: s.json.score, comments: s.json.descendants || 0 }));\n\nreturn [{ json: { stories: filtered } }];"
+      }
+    },
+    {
+      "id": "parse-huggingface",
+      "name": "Parse HuggingFace",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 400],
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\n\nconst parsed = allItems.slice(0, 8).map(item => {\n  const p = item.json;\n  return { source: 'HuggingFace', title: p.title || p.paper?.title || 'Untitled', url: p.paper?.id ? `https://huggingface.co/papers/${p.paper.id}` : (p.id ? `https://huggingface.co/papers/${p.id}` : ''), upvotes: p.paper?.upvotes || p.upvotes || 0, summary: (p.paper?.summary || p.summary || '').substring(0, 200) };\n});\n\nreturn [{ json: { papers: parsed } }];"
+      }
+    },
+    {
+      "id": "parse-reddit-ml",
+      "name": "Parse Reddit ML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 600],
+      "parameters": {
+        "jsCode": "const data = $input.first().json?.data?.children || [];\n\nconst posts = data.filter(p => p.data && p.data.score > 30).slice(0, 8).map(p => ({ source: 'Reddit r/MachineLearning', title: p.data.title, url: `https://reddit.com${p.data.permalink}`, score: p.data.score, comments: p.data.num_comments }));\n\nreturn [{ json: { posts: posts } }];"
+      }
+    },
+    {
+      "id": "parse-reddit-llama",
+      "name": "Parse Reddit LocalLLaMA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 800],
+      "parameters": {
+        "jsCode": "const data = $input.first().json?.data?.children || [];\n\nconst posts = data.filter(p => p.data && p.data.score > 20).slice(0, 8).map(p => ({ source: 'Reddit r/LocalLLaMA', title: p.data.title, url: `https://reddit.com${p.data.permalink}`, score: p.data.score, comments: p.data.num_comments }));\n\nreturn [{ json: { posts: posts } }];"
+      }
+    },
+    {
+      "id": "merge-all",
+      "name": "Merge All Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1100, 400],
+      "parameters": {"mode": "append", "numberInputs": 5, "options": {}}
+    },
+    {
+      "id": "combine-digest",
+      "name": "Combine into Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 400],
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nlet digest = { date: new Date().toISOString().split('T')[0], arxiv: [], hackernews: [], huggingface: [], reddit_ml: [], reddit_llama: [] };\n\nfor (const item of items) {\n  const data = item.json;\n  if (data.papers && data.papers[0]?.source === 'arXiv') digest.arxiv = data.papers;\n  else if (data.stories) digest.hackernews = data.stories;\n  else if (data.papers && data.papers[0]?.source === 'HuggingFace') digest.huggingface = data.papers;\n  else if (data.posts && data.posts[0]?.source?.includes('MachineLearning')) digest.reddit_ml = data.posts;\n  else if (data.posts && data.posts[0]?.source?.includes('LocalLLaMA')) digest.reddit_llama = data.posts;\n}\n\nlet summary = `Today's AI Research Digest (${digest.date}):\\n\\n`;\nif (digest.arxiv.length > 0) { summary += `**arXiv Papers (${digest.arxiv.length}):**\\n`; digest.arxiv.forEach((p, i) => { summary += `${i+1}. ${p.title}\\n`; }); summary += '\\n'; }\nif (digest.hackernews.length > 0) { summary += `**Hacker News AI (${digest.hackernews.length}):**\\n`; digest.hackernews.forEach((s, i) => { summary += `${i+1}. ${s.title} (${s.score} pts)\\n`; }); summary += '\\n'; }\nif (digest.huggingface.length > 0) { summary += `**HuggingFace Daily Papers (${digest.huggingface.length}):**\\n`; digest.huggingface.forEach((p, i) => { summary += `${i+1}. ${p.title}\\n`; }); summary += '\\n'; }\nif (digest.reddit_ml.length > 0) { summary += `**Reddit r/MachineLearning (${digest.reddit_ml.length}):**\\n`; digest.reddit_ml.forEach((p, i) => { summary += `${i+1}. ${p.title} (${p.score} pts)\\n`; }); summary += '\\n'; }\nif (digest.reddit_llama.length > 0) { summary += `**Reddit r/LocalLLaMA (${digest.reddit_llama.length}):**\\n`; digest.reddit_llama.forEach((p, i) => { summary += `${i+1}. ${p.title} (${p.score} pts)\\n`; }); }\n\nreturn [{ json: { digest, summary } }];"
+      }
+    },
+    {
+      "id": "ollama-http",
+      "name": "AI Analysis (Ollama)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1500, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"model\": \"llama3.2:latest\", \"prompt\": \"Analyze this AI news digest briefly (150 words max):\\n\\n\" + $json.summary + \"\\n\\nProvide: 1) Top 3 items 2) Key trend 3) Pulse: Hot/Warm/Quiet\", \"stream\": false } }}",
+        "options": {"timeout": 300000}
+      }
+    },
+    {
+      "id": "format-telegram",
+      "name": "Format Telegram Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 400],
+      "parameters": {
+        "jsCode": "const digest = $('Combine into Digest').first().json.digest;\nconst ollamaResponse = $input.first().json;\nlet aiAnalysis = ollamaResponse.response || 'Analysis unavailable';\naiAnalysis = aiAnalysis.replace(/\\*\\*/g, '').replace(/\\*/g, '').replace(/#{1,6}\\s/g, '').replace(/<[^>]*>/g, '').substring(0, 1500);\nconst date = digest.date;\n\nlet msg = `<b>🤖 AI Research Digest</b>\\n<i>📅 ${date}</i>\\n\\n`;\nmsg += `<b>📊 Today's Analysis</b>\\n${aiAnalysis}\\n\\n━━━━━━━━━━━━━━━━━━━━━━\\n\\n`;\n\nif (digest.arxiv?.length > 0) { msg += `<b>📚 arXiv Papers</b>\\n`; digest.arxiv.slice(0, 5).forEach((p, i) => { msg += `${i+1}. <a href=\"${p.url}\">${p.title.substring(0, 60).replace(/[<>]/g, '')}...</a>\\n`; }); msg += '\\n'; }\nif (digest.hackernews?.length > 0) { msg += `<b>🔥 Hacker News</b>\\n`; digest.hackernews.slice(0, 5).forEach((s, i) => { msg += `${i+1}. <a href=\"${s.url}\">${s.title.substring(0, 55).replace(/[<>]/g, '')}</a> (${s.score}⬆)\\n`; }); msg += '\\n'; }\nif (digest.huggingface?.length > 0) { msg += `<b>🤗 HuggingFace Papers</b>\\n`; digest.huggingface.slice(0, 5).forEach((p, i) => { msg += `${i+1}. <a href=\"${p.url}\">${p.title.substring(0, 55).replace(/[<>]/g, '')}</a>\\n`; }); msg += '\\n'; }\nif (digest.reddit_ml?.length > 0) { msg += `<b>💬 r/MachineLearning</b>\\n`; digest.reddit_ml.slice(0, 3).forEach((p, i) => { msg += `${i+1}. <a href=\"${p.url}\">${p.title.substring(0, 50).replace(/[<>]/g, '')}</a> (${p.score}⬆)\\n`; }); msg += '\\n'; }\nif (digest.reddit_llama?.length > 0) { msg += `<b>🦙 r/LocalLLaMA</b>\\n`; digest.reddit_llama.slice(0, 3).forEach((p, i) => { msg += `${i+1}. <a href=\"${p.url}\">${p.title.substring(0, 50).replace(/[<>]/g, '')}</a> (${p.score}⬆)\\n`; }); }\n\nmsg += `\\n━━━━━━━━━━━━━━━━━━━━━━\\n<i>Curated by your AI Research Agent</i>`;\nreturn [{ json: { message: msg } }];"
+      }
+    },
+    {
+      "id": "send-telegram",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1900, 400],
+      "parameters": {
+        "operation": "sendMessage",
+        "chatId": "YOUR_CHAT_ID",
+        "text": "={{ $json.message }}",
+        "additionalFields": {"parse_mode": "HTML", "disable_web_page_preview": true}
+      }
+    }
+  ],
+  "connections": {
+    "Daily 6am AEST": {"main": [[{"node": "Fetch arXiv AI Papers", "type": "main", "index": 0}, {"node": "Fetch HN Top Story IDs", "type": "main", "index": 0}, {"node": "Fetch HuggingFace Papers", "type": "main", "index": 0}, {"node": "Fetch Reddit ML", "type": "main", "index": 0}, {"node": "Fetch Reddit LocalLLaMA", "type": "main", "index": 0}]]},
+    "Fetch arXiv AI Papers": {"main": [[{"node": "Parse arXiv RSS", "type": "main", "index": 0}]]},
+    "Fetch HN Top Story IDs": {"main": [[{"node": "Limit to 30 Stories", "type": "main", "index": 0}]]},
+    "Limit to 30 Stories": {"main": [[{"node": "Fetch HN Story Details", "type": "main", "index": 0}]]},
+    "Fetch HN Story Details": {"main": [[{"node": "Filter AI Stories", "type": "main", "index": 0}]]},
+    "Fetch HuggingFace Papers": {"main": [[{"node": "Parse HuggingFace", "type": "main", "index": 0}]]},
+    "Fetch Reddit ML": {"main": [[{"node": "Parse Reddit ML", "type": "main", "index": 0}]]},
+    "Fetch Reddit LocalLLaMA": {"main": [[{"node": "Parse Reddit LocalLLaMA", "type": "main", "index": 0}]]},
+    "Parse arXiv RSS": {"main": [[{"node": "Merge All Sources", "type": "main", "index": 0}]]},
+    "Filter AI Stories": {"main": [[{"node": "Merge All Sources", "type": "main", "index": 1}]]},
+    "Parse HuggingFace": {"main": [[{"node": "Merge All Sources", "type": "main", "index": 2}]]},
+    "Parse Reddit ML": {"main": [[{"node": "Merge All Sources", "type": "main", "index": 3}]]},
+    "Parse Reddit LocalLLaMA": {"main": [[{"node": "Merge All Sources", "type": "main", "index": 4}]]},
+    "Merge All Sources": {"main": [[{"node": "Combine into Digest", "type": "main", "index": 0}]]},
+    "Combine into Digest": {"main": [[{"node": "AI Analysis (Ollama)", "type": "main", "index": 0}]]},
+    "AI Analysis (Ollama)": {"main": [[{"node": "Format Telegram Message", "type": "main", "index": 0}]]},
+    "Format Telegram Message": {"main": [[{"node": "Send to Telegram", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1", "timezone": "Australia/Sydney"}
+}

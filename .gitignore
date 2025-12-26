@@ -19,3 +19,7 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+
+# Personal data - do not commit
+documents/personal-info.md
+**/personal-info.md
